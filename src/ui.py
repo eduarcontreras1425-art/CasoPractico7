@@ -274,3 +274,43 @@ class CommanderApp:
                     else:
                         self.status_msg = f"La ruta guardada ya no existe: {dest}"
                     break
+
+    def _view_text_file(self, file_path: Path) -> None:
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as exc:
+            self.status_msg = f"No se pudo abrir el archivo: {exc}"
+            return
+        if not content:
+            content = ["(Archivo vacío)"]
+        top_line = 0
+        while True:
+            self.stdscr.erase()
+            height, width = self.stdscr.getmaxyx()
+            body_height = max(1, height - 2)
+            header = f" VISOR: {file_path} (Línea {top_line + 1}/{len(content)}) "
+            self.stdscr.addstr(0, 0, header.ljust(width)[:width], curses.color_pair(3))
+            for row in range(body_height):
+                idx = top_line + row
+                if idx >= len(content):
+                    break
+                line_text = content[idx].replace("\t", "    ")
+                self.stdscr.addstr(row + 1, 0, line_text[: max(1, width - 1)])
+            footer = " [↑/↓] Desplazar | [RePág/AvPág] Saltar | [q/Esc] Cerrar visor "
+            self.stdscr.addstr(
+                height - 1, 0, footer.ljust(width)[: max(1, width - 1)], curses.color_pair(3)
+            )
+            self.stdscr.refresh()
+            key = self.stdscr.getch()
+            if key == curses.KEY_RESIZE:
+                continue
+            if key in (ord("q"), ord("Q"), 27):
+                break
+            if key == curses.KEY_DOWN and top_line < len(content) - 1:
+                top_line += 1
+            elif key == curses.KEY_UP and top_line > 0:
+                top_line -= 1
+            elif key == curses.KEY_NPAGE:
+                top_line = min(len(content) - 1, top_line + body_height)
+            elif key == curses.KEY_PPAGE:
+                top_line = max(0, top_line - body_height)
