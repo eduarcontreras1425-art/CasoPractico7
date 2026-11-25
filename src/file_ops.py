@@ -199,3 +199,29 @@ def search_files(root_dir: Path, query: str, show_hidden: bool = False) -> list[
             if q_lower in name.lower():
                 matches.append(Path(current_root) / name)
     return sorted(matches)
+
+
+def change_permissions(target: Path, octal_str: str) -> None:
+    """Cambia permisos usando modo octal (ej. '755' o '0644') con os.chmod()."""
+    cleaned = octal_str.strip()
+    if not cleaned.isdigit() or not (3 <= len(cleaned) <= 4):
+        raise ValueError("Formato inválido. Usa 3 o 4 dígitos octales (ej. 755).")
+    for ch in cleaned:
+        if ch not in "01234567":
+            raise ValueError("Los permisos octales solo aceptan dígitos del 0 al 7.")
+    os.chmod(target, int(cleaned, 8))
+
+
+def calculate_directory_size(target: Path) -> int:
+    """Calcula el tamaño total en bytes de una carpeta y todo su contenido."""
+    if target.is_file():
+        return target.stat().st_size
+    total = 0
+    for current_root, _, files in os.walk(target):
+        for fname in files:
+            fpath = Path(current_root) / fname
+            try:
+                total += fpath.stat(follow_symlinks=False).st_size
+            except OSError:
+                continue
+    return total
