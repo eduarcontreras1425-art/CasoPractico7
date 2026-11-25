@@ -94,3 +94,43 @@ def list_directory(
     else:
         items.sort(key=lambda x: (not x.is_dir, x.name.lower()))
     return entries + items
+
+
+def create_directory(parent_dir: Path, folder_name: str) -> Path:
+    """Crea una nueva carpeta dentro del directorio indicado."""
+    if not folder_name or "/" in folder_name or folder_name in (".", ".."):
+        raise ValueError("Nombre de carpeta inválido.")
+    new_dir = parent_dir / folder_name
+    new_dir.mkdir(parents=False, exist_ok=False)
+    return new_dir
+
+
+def rename_item(source: Path, new_name: str) -> Path:
+    """Renombra un archivo o carpeta en su mismo directorio."""
+    if not new_name or "/" in new_name or new_name in (".", ".."):
+        raise ValueError("Nuevo nombre inválido.")
+    destination = source.parent / new_name
+    if destination.exists():
+        raise FileExistsError(f"Ya existe '{new_name}' en el destino.")
+    return source.rename(destination)
+
+
+def copy_item(source: Path, dest_dir: Path) -> Path:
+    """Copia un archivo o directorio completo al directorio destino."""
+    destination = dest_dir / source.name
+    if destination.exists():
+        raise FileExistsError(f"El destino ya contiene '{source.name}'.")
+    if source.is_dir():
+        shutil.copytree(source, destination, symlinks=True)
+    else:
+        shutil.copy2(source, destination)
+    return destination
+
+
+def move_item(source: Path, dest_dir: Path) -> Path:
+    """Mueve un archivo o directorio hacia el directorio destino."""
+    destination = dest_dir / source.name
+    if destination.exists():
+        raise FileExistsError(f"El destino ya contiene '{source.name}'.")
+    shutil.move(str(source), str(destination))
+    return destination
