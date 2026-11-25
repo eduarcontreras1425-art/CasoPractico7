@@ -160,3 +160,117 @@ class CommanderApp:
         )
         self.stdscr.addstr(height - 1, 0, f" {self.status_msg}"[: max(1, width - 1)])
         curses.doupdate()
+
+    def _prompt_input(self, prompt: str) -> str | None:
+        height, width = self.stdscr.getmaxyx()
+        win = curses.newwin(3, max(20, width - 4), max(1, height // 2 - 1), 2)
+        win.box()
+        win.addstr(0, 2, f" {prompt} "[: width - 8], curses.A_BOLD)
+        win.refresh()
+        curses.echo()
+        curses.curs_set(1)
+        try:
+            raw = win.getstr(1, 2, max(10, width - 10))
+            return raw.decode("utf-8", errors="replace").strip()
+        except curses.error:
+            return None
+        finally:
+            curses.noecho()
+            curses.curs_set(0)
+
+    def _prompt_confirm(self, question: str) -> bool:
+        height, width = self.stdscr.getmaxyx()
+        win = curses.newwin(3, max(20, width - 4), max(1, height // 2 - 1), 2)
+        win.box()
+        msg = f"{question} [s/N]: "
+        win.addstr(1, 2, msg[: width - 8], curses.color_pair(5) | curses.A_BOLD)
+        win.refresh()
+        key = win.getch()
+        return key in (ord("s"), ord("S"), ord("y"), ord("Y"))
+
+    def _handle_search(self) -> None:
+        query = self._prompt_input("Buscar archivo/carpeta (nombre):")
+        if not query:
+            return
+        results = search_files(
+            self.active_panel.current_dir, query, show_hidden=self.show_hidden
+        )
+        if not results:
+            self.status_msg = f"Sin coincidencias para '{query}'."
+            return
+        selected_idx = 0
+        while True:
+            self.stdscr.erase()
+            height, width = self.stdscr.getmaxyx()
+            max_rows = max(1, height - 3)
+            header = f" RESULTADOS PARA '{query}' ({len(results)} encontrados) "
+            self.stdscr.addstr(0, 0, header.ljust(width)[:width], curses.color_pair(3))
+            start = max(0, selected_idx - max_rows + 1)
+            for i in range(max_rows):
+                idx = start + i
+                if idx >= len(results):
+                    break
+                rel = str(results[idx])
+                attr = curses.color_pair(2) if idx == selected_idx else curses.A_NORMAL
+                self.stdscr.addstr(i + 1, 1, rel[: max(1, width - 2)], attr)
+            footer = " [Enter] Ir a ubicación | [q/Esc] Cancelar "
+            self.stdscr.addstr(
+                height - 1, 0, footer.ljust(width)[: max(1, width - 1)], curses.color_pair(3)
+            )
+            self.stdscr.refresh()
+            key = self.stdscr.getch()
+            if key == curses.KEY_DOWN and selected_idx < len(results) - 1:
+                selected_idx += 1
+            elif key == curses.KEY_UP and selected_idx > 0:
+                selected_idx -= 1
+            elif key in (10, 13):
+                chosen = results[selected_idx]
+                target_dir = chosen if chosen.is_dir() else chosen.parent
+                self.active_panel.current_dir = target_dir
+                self.active_panel.selected_idx = 0
+                self.active_panel.refresh(self.show_hidden, self.sort_by)
+                for idx, entry in enumerate(self.active_panel.entries):
+                    if entry.path == chosen:
+                        self.active_panel.selected_idx = idx
+                        break
+                self.status_msg = f"Ubicado en: {chosen}"
+                break
+            elif key in (ord("q"), ord("Q"), 27):
+                break
+
+    def _handle_bookmarks(self) -> None:
+        while True:
+            bookmarks: list[str] = self.config.get("bookmarks", [])
+            self.stdscr.erase()
+            height, width = self.stdscr.getmaxyx()
+            header = " MARCADORES FAVORITOS (Guardados en JSON) "
+            self.stdscr.addstr(0, 0, header.ljust(width)[:width], curses.color_pair(3))
+            for idx, bpath in enumerate(bookmarks[: max(1, height - 3)]):
+                self.stdscr.addstr(idx + 1, 2, f"[{idx + 1}] {bpath}"[: max(1, width - 4)])
+            footer = " [1-9] Ir | [a] Agregar ruta actual | [x] Borrar #1 | [q] Cerrar "
+            self.stdscr.addstr(
+                height - 1, 0, footer.ljust(width)[: max(1, width - 1)], curses.color_pair(3)
+            )
+            self.stdscr.refresh()
+            key = self.stdscr.getch()
+            if key in (ord("q"), ord("Q"), 27):
+                break
+            if key in (ord("a"), ord("A")):
+                updated = add_bookmark(str(self.active_panel.current_dir))
+                self.config["bookmarks"] = updated
+                self.status_msg = f"Marcador guardado: {self.active_panel.current_dir}"
+            elif key in (ord("x"), ord("X")) and bookmarks:
+                updated = remove_bookmark(bookmarks[0])
+                self.config["bookmarks"] = updated
+            elif ord("1") <= key <= ord("9"):
+                choice = key - ord("1")
+                if choice < len(bookmarks):
+                    dest = Path(bookmarks[choice])
+                    if dest.is_dir():
+                        self.active_panel.current_dir = dest
+                        self.active_panel.selected_idx = 0
+                        self.active_panel.refresh(self.show_hidden, self.sort_by)
+                        self.status_msg = f"Saltado a marcador: {dest}"
+                    else:
+                        self.status_msg = f"La ruta guardada ya no existe: {dest}"
+                    break
