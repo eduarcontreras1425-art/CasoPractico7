@@ -54,3 +54,78 @@ def test_rename_item(tmp_path):
     assert not original.exists()
     assert renamed.exists()
     assert renamed.read_text() == "log data"
+
+
+def test_copy_item_file_and_dir(tmp_path):
+    src_dir = tmp_path / "origen"
+    dst_dir = tmp_path / "destino"
+    src_dir.mkdir()
+    dst_dir.mkdir()
+    archivo = src_dir / "config.conf"
+    archivo.write_text("port=8080")
+    copied = copy_item(archivo, dst_dir)
+    assert archivo.exists()
+    assert copied.exists()
+    assert copied.read_text() == "port=8080"
+
+
+def test_move_item(tmp_path):
+    src_dir = tmp_path / "origen"
+    dst_dir = tmp_path / "destino"
+    src_dir.mkdir()
+    dst_dir.mkdir()
+    archivo = src_dir / "mover.txt"
+    archivo.write_text("contenido")
+    moved = move_item(archivo, dst_dir)
+    assert not archivo.exists()
+    assert moved.exists()
+
+
+def test_move_to_trash(tmp_path):
+    trash = tmp_path / "papelera_test"
+    archivo = tmp_path / "importante.db"
+    archivo.write_text("datos críticos")
+    trashed = move_to_trash(archivo, trash_dir=trash)
+    assert not archivo.exists()
+    assert trashed.exists()
+    assert trashed.parent == trash
+    assert trashed.read_text() == "datos críticos"
+
+
+def test_search_files_recursive(tmp_path):
+    sub = tmp_path / "sub1" / "sub2"
+    sub.mkdir(parents=True)
+    target = sub / "reporte_servidor.txt"
+    target.write_text("ok")
+    (tmp_path / "otro.txt").write_text("no")
+    results = search_files(tmp_path, "servidor")
+    assert len(results) == 1
+    assert results[0] == target
+
+
+def test_change_permissions(tmp_path):
+    script = tmp_path / "deploy.sh"
+    script.write_text("#!/bin/bash")
+    change_permissions(script, "755")
+    assert stat.S_IMODE(script.stat().st_mode) == 0o755
+
+
+def test_calculate_directory_size(tmp_path):
+    sub = tmp_path / "logs"
+    sub.mkdir()
+    (tmp_path / "a.bin").write_bytes(b"x" * 100)
+    (sub / "b.bin").write_bytes(b"y" * 250)
+    assert calculate_directory_size(tmp_path) == 350
+    assert format_size(2048) == "2.0 KB"
+
+
+def test_bookmarks_persistence(tmp_path):
+    cfg_file = tmp_path / "config.json"
+    folder = tmp_path / "proyecto"
+    folder.mkdir()
+    bookmarks = add_bookmark(str(folder), config_path=cfg_file)
+    assert str(folder.resolve()) in bookmarks
+    loaded = load_config(config_path=cfg_file)
+    assert str(folder.resolve()) in loaded["bookmarks"]
+    bookmarks_after = remove_bookmark(str(folder), config_path=cfg_file)
+    assert str(folder.resolve()) not in bookmarks_after
