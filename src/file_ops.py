@@ -174,3 +174,28 @@ def move_item(source: Path, dest_dir: Path) -> Path:
         raise FileExistsError(f"El destino ya contiene '{source.name}'.")
     shutil.move(str(source), str(destination))
     return destination
+
+
+def move_to_trash(source: Path, trash_dir: Path = DEFAULT_TRASH_DIR) -> Path:
+    """Envía un archivo o carpeta a ~/.papelera en lugar de borrarlo definitivamente."""
+    trash_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    trash_target = trash_dir / f"{source.name}_{timestamp}"
+    shutil.move(str(source), str(trash_target))
+    return trash_target
+
+
+def search_files(root_dir: Path, query: str, show_hidden: bool = False) -> list[Path]:
+    """Busca archivos o carpetas por subcadena en root_dir y subcarpetas."""
+    matches: list[Path] = []
+    q_lower = query.strip().lower()
+    if not q_lower:
+        return matches
+    for current_root, dirs, files in os.walk(root_dir):
+        if not show_hidden:
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            files = [f for f in files if not f.startswith(".")]
+        for name in dirs + files:
+            if q_lower in name.lower():
+                matches.append(Path(current_root) / name)
+    return sorted(matches)
