@@ -314,3 +314,127 @@ class CommanderApp:
                 top_line = min(len(content) - 1, top_line + body_height)
             elif key == curses.KEY_PPAGE:
                 top_line = max(0, top_line - body_height)
+
+    def run(self) -> None:
+        while True:
+            self.render()
+            key = self.stdscr.getch()
+            if key == curses.KEY_RESIZE:
+                curses.update_lines_cols()
+                continue
+            if key in (ord("q"), ord("Q")):
+                break
+            panel = self.active_panel
+            entry = panel.selected_entry
+            has_item = entry is not None and entry.name != ".."
+
+            if key == 9:
+                self.active_idx = 1 - self.active_idx
+                side = "Izquierdo" if self.active_idx == 0 else "Derecho"
+                self.status_msg = f"Panel activo: {side}"
+            elif key == curses.KEY_UP and panel.selected_idx > 0:
+                panel.selected_idx -= 1
+            elif key == curses.KEY_DOWN and panel.selected_idx < len(panel.entries) - 1:
+                panel.selected_idx += 1
+            elif key in (10, 13) and entry is not None:
+                if entry.is_dir:
+                    prev_dir = panel.current_dir
+                    panel.current_dir = entry.path.resolve()
+                    panel.selected_idx = 0
+                    err = panel.refresh(self.show_hidden, self.sort_by)
+                    if err:
+                        panel.current_dir = prev_dir
+                        panel.refresh(self.show_hidden, self.sort_by)
+                        self.status_msg = err
+                    else:
+                        self.status_msg = f"Directorio: {panel.current_dir}"
+                else:
+                    self._view_text_file(entry.path)
+            elif key in (ord("v"), ord("V"), curses.KEY_F3) and entry and not entry.is_dir:
+                self._view_text_file(entry.path)
+            elif key in (ord("h"), ord("H")):
+                self.show_hidden = not self.show_hidden
+                self._save_preferences()
+                for p in self.panels:
+                    p.refresh(self.show_hidden, self.sort_by)
+                estado = "visibles" if self.show_hidden else "ocultos"
+                self.status_msg = f"Archivos ocultos: {estado}"
+            elif key in (ord("o"), ord("O")):
+                order_cycle = ["name", "size", "date"]
+                self.sort_by = order_cycle[(order_cycle.index(self.sort_by) + 1) % 3]
+                self._save_preferences()
+                for p in self.panels:
+                    p.refresh(self.show_hidden, self.sort_by)
+                self.status_msg = f"Ordenado por: {self.sort_by}"
+            elif key in (ord("n"), ord("N"), curses.KEY_F7):
+                folder_name = self._prompt_input("Nombre de nueva carpeta:")
+                if folder_name:
+                    try:
+                        created = create_directory(panel.current_dir, folder_name)
+                        panel.refresh(self.show_hidden, self.sort_by)
+                        self.status_msg = f"Carpeta creada: {created.name}"
+                    except (ValueError, OSError) as exc:
+                        self.status_msg = f"Error al crear carpeta: {exc}"
+            elif key in (ord("r"), ord("R")) and has_item:
+                new_name = self._prompt_input(f"Renombrar '{entry.name}' a:")
+                if new_name:
+                    try:
+                        renamed = rename_item(entry.path, new_name)
+                        panel.refresh(self.show_hidden, self.sort_by)
+                        self.status_msg = f"Renombrado a: {renamed.name}"
+                    except (ValueError, OSError) as exc:
+                        self.status_msg = f"Error al renombrar: {exc}"
+            elif key in (ord("c"), ord("C"), curses.KEY_F5) and has_item:
+                dest_dir = self.inactive_panel.current_dir
+                if self._prompt_confirm(f"¿Copiar '{entry.name}' a {dest_dir}?"):
+                    try:
+                        copy_item(entry.path, dest_dir)
+                        self.inactive_panel.refresh(self.show_hidden, self.sort_by)
+                        self.status_msg = f"Copiado '{entry.name}' -> {dest_dir}"
+                    except OSError as exc:
+                        self.status_msg = f"Error al copiar: {exc}"
+            elif key in (ord("m"), ord("M"), curses.KEY_F6) and has_item:
+                dest_dir = self.inactive_panel.current_dir
+                if self._prompt_confirm(f"¿Mover '{entry.name}' a {dest_dir}?"):
+                    try:
+                        move_item(entry.path, dest_dir)
+                        for p in self.panels:
+                            p.refresh(self.show_hidden, self.sort_by)
+                        self.status_msg = f"Movido '{entry.name}' -> {dest_dir}"
+                    except OSError as exc:
+                        self.status_msg = f"Error al mover: {exc}"
+            elif key in (ord("d"), ord("D"), curses.KEY_F8) and has_item:
+                if self._prompt_confirm(f"¿Enviar '{entry.name}' a ~/.papelera?"):
+                    try:
+                        trashed = move_to_trash(entry.path)
+                        for p in self.panels:
+                            p.refresh(self.show_hidden, self.sort_by)
+                        self.status_msg = f"Enviado a papelera: {trashed.name}"
+                    except OSError as exc:
+                        self.status_msg = f"Error al eliminar: {exc}"
+            elif key == ord("/"):
+                self._handle_search()
+            elif key in (ord("p"), ord("P")) and has_item:
+                octal_val = self._prompt_input(
+                    f"Permisos octales para '{entry.name}' (ej. 755):"
+                )
+                if octal_val:
+                    try:
+                        change_permissions(entry.path, octal_val)
+                        panel.refresh(self.show_hidden, self.sort_by)
+                        self.status_msg = f"Permisos actualizados ({octal_val}) en {entry.name}"
+                    except (ValueError, OSError) as exc:
+                        self.status_msg = f"Error chmod: {exc}"
+            elif key in (ord("t"), ord("T")) and has_item:
+                total_bytes = calculate_directory_size(entry.path)
+                self.status_msg = (
+                    f"Tamaño total de '{entry.name}': {format_size(total_bytes)}"
+                )
+            elif key in (ord("b"), ord("B")):
+                self._handle_bookmarks()
+
+
+def start_ui(stdscr: "curses.window") -> None:
+    """Función puente invocada por curses.wrapper."""
+    app = CommanderApp(stdscr)
+    app.run()
